@@ -1,0 +1,16 @@
+{
+  "name": "dsh-inspect",
+  "version": "0.1.0",
+  "description": "Inspect what a DSH session was injected with: multi-frame zstd decoding, injection inventory and drift detection.",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "dsh-inspect": "./bin/dsh-inspect.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.15.0"
+  }
+}
