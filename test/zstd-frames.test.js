@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import { test } from 'node:test';
-import { zstdCompressSync } from 'node:zlib';
+import { constants, createZstdCompress, zstdCompressSync } from 'node:zlib';
 
 import { decodeZstdFrames, splitZstdFrames, ZstdFrameError } from '../src/zstd-frames.js';
 
@@ -46,6 +47,19 @@ function skippableFrame(payload) {
   return Buffer.concat([header, payload]);
 }
 
+async function compressStream(chunks) {
+  const compressor = createZstdCompress();
+  const output = [];
+  compressor.on('data', (chunk) => output.push(chunk));
+  const ended = once(compressor, 'end');
+
+  for (const chunk of chunks) compressor.write(Buffer.from(chunk));
+  compressor.end();
+  await ended;
+
+  return Buffer.concat(output);
+}
+
 test('splits concatenated frames at their real boundaries', () => {
   const { first, second, fixture } = twoFrameFixture();
 
@@ -84,6 +98,29 @@ test('decodes three frames in order', () => {
   const fixture = Buffer.concat(parts.map((part) => zstdCompressSync(Buffer.from(part))));
 
   assert.equal(decodeZstdFrames(fixture).toString('utf8'), parts.join(''));
+});
+
+test('decodes concatenated streaming frames that omit the content size', async () => {
+  const makeRows = (id, count) =>
+    `${Array.from({ length: count }, (_, index) => JSON.stringify({ stream: id, index })).join('\n')}\n`;
+  const firstPart = makeRows(1, 1500);
+  const secondPart = makeRows(2, 900);
+  // A streaming compressor does not know the total size, so its frame omits
+  // the content-size field (frame header descriptor has single_segment=0).
+  const first = await compressStream([firstPart]);
+  const second = await compressStream([secondPart]);
+  const fixture = Buffer.concat([first, second]);
+
+  assert.equal(splitZstdFrames(fixture).length, 2);
+  assert.equal(decodeZstdFrames(fixture).toString('utf8'), firstPart + secondPart);
+});
+
+test('decodes a frame with a content checksum', () => {
+  const compressed = zstdCompressSync(Buffer.from(partA), {
+    params: { [constants.ZSTD_c_checksumFlag]: 1 },
+  });
+
+  assert.equal(decodeZstdFrames(compressed).toString('utf8'), partA);
 });
 
 test('skips standard skippable frames', () => {

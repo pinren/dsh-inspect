@@ -9,7 +9,7 @@ node bin/dsh-inspect.js /path/to/session.v4.jsonl.zstd
 
 解码后的完整 JSONL 写到 stdout。用法错误、读文件失败、输入不是 zstd、frame 截断或尾部有多余字节时，原因写到 stderr 并以非 0 退出——不会静默输出空内容。
 
-需要 Node.js ≥ 22.15（使用 `node:zlib` 内置的 zstd 支持），无第三方依赖。
+需要 Node.js 22.15+ 或 23.8+（使用 `node:zlib` 内置的 zstd 支持），无第三方依赖。
 
 ## 多帧的坑
 
@@ -23,4 +23,4 @@ DSH 的 `session.v4.jsonl.zstd` 不是单一 zstd 流，而是**多个独立 zst
 npm test
 ```
 
-测试用内置的 `node:test`。两帧夹具是把两段 JSONL 分别用 `zstdCompressSync` 压缩，再把两段压缩结果直接拼接，和真实文件形态一致；另外覆盖单帧、三帧、截断/垃圾输入和 CLI 错误退出。
+测试用内置的 `node:test`。两帧夹具是把两段 JSONL 分别用 `zstdCompressSync` 压缩，再把两段压缩结果直接拼接，和真实文件形态一致；另外覆盖单帧、三帧、流式压缩（无 content size）、checksum、截断/垃圾输入和 CLI 错误退出。
