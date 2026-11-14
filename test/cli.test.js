@@ -75,6 +75,19 @@ test('CLI exits non-zero and explains an unreadable path', () => {
   assert.match(result.stderr, /cannot read/);
 });
 
+test('CLI exits non-zero without partial stdout when a frame is truncated', async () => {
+  const first = zstdCompressSync(Buffer.from(partA));
+  const complete = Buffer.concat([first, zstdCompressSync(Buffer.from(partB))]);
+  const path = join(tempDir, 'truncated.v4.jsonl.zstd');
+  await writeFile(path, complete.subarray(0, first.length + 5));
+
+  const result = runCli([path]);
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /truncated zstd frame/);
+});
+
 test('CLI exits non-zero and explains corrupt input instead of printing nothing', async () => {
   const path = join(tempDir, 'corrupt.v4.jsonl.zstd');
   await writeFile(path, 'this is not zstd');
