@@ -1,5 +1,5 @@
 # dsh-inspect
-看一个 DSH 会话到底被注入了什么：多帧 zstd 解码 + 注入清单 + 目录汇总
+看一个 DSH 会话到底被注入了什么：多帧 zstd 解码 + 注入清单 + 漂移检测 + 目录汇总
 
 ## 用法
 
@@ -9,6 +9,9 @@ node bin/dsh-inspect.js /path/to/session.v4.jsonl.zstd
 
 # 列出这个会话实际注入过的 AGENTS.md 链
 node bin/dsh-inspect.js inject /path/to/session.v4.jsonl.zstd
+
+# 对比注入时与磁盘当前版本，看文件是否漂移
+node bin/dsh-inspect.js drift /path/to/session.v4.jsonl.zstd
 
 # 递归汇总一个目录下的全部会话
 node bin/dsh-inspect.js report ~/.dsh/sessions
@@ -35,6 +38,36 @@ scenes/dsh/AGENTS.md · 3966 · e096ca7560e63890df6f917ee4173dff116f2a83582e886c
 - 会话没有注入任何 AGENTS.md 时，stdout 为空、退出码 0。
 
 文件内容里即使出现 `Instructions from: …` 这样的行，也不会被当成分节标题：分节以该条消息 `changes` 里登记的文件为准。
+
+## 漂移检测
+
+`inject` 刻意不回读磁盘，只描述会话当时收到了什么；`drift` 补上另一半：拿 `inject` 清单里的每个文件，按清单路径读**磁盘当前内容**，算 sha256 与字节数后和注入时比较。
+
+```sh
+node bin/dsh-inspect.js drift /path/to/session.v4.jsonl.zstd
+```
+
+输出一行一个文件，列用制表符分隔：
+
+```text
+changed	scenes/dsh/AGENTS.md	3966	4102
+missing	~/.agents/AGENTS.md	1043	-
+unchanged	AGENTS.md	3645
+```
+
+列依次是**状态、清单里的路径、注入时字节、当前字节**（`missing` 的当前字节记为 `-`）。行按状态排序：`changed` → `missing` → `unchanged`；同一状态内保持清单顺序。
+
+| 状态 | 条件 |
+|---|---|
+| `unchanged` | 当前 sha256 与注入时相同 |
+| `changed` | 文件能读到，但 sha256 不同 |
+| `missing` | 文件读不到：不存在、权限不足、路径是目录等 |
+
+路径解析：相对路径按**当前工作目录**解析，绝对路径直接使用，开头的 `~` 展开到 home 目录。相对路径依赖 cwd，所以检查某个项目的历史会话时，应在该项目目录下运行。
+
+退出码：`0` 全部 unchanged（空清单也是 0）；`1` 至少一个 changed 或 missing；`2` 读不到会话日志或输入不是 zstd。
+
+`drift` 只读：只读取清单里的路径，不写文件、不改日志，也不做自动修复；`inject` 的现有行为不变。
 
 ## 目录汇总
 
@@ -95,4 +128,4 @@ DSH 的 `session.v4.jsonl.zstd` 不是单一 zstd 流，而是**多个独立 zst
 npm test
 ```
 
-测试用内置的 `node:test`。两帧夹具是把两段 JSONL 分别用 `zstdCompressSync` 压缩，再把两段压缩结果直接拼接，和真实文件形态一致；另外覆盖单帧、三帧、流式压缩（无 content size）、checksum、截断/垃圾输入和 CLI 错误退出。注入清单覆盖空注入、单文件、多文件链、后续替换/新增/删除、替换 baseline、正文里伪造标题；目录汇总覆盖递归多会话、空目录、没有会话文件的目录、无 usage 会话和损坏日志。
+测试用内置的 `node:test`。两帧夹具是把两段 JSONL 分别用 `zstdCompressSync` 压缩，再把两段压缩结果直接拼接，和真实文件形态一致；另外覆盖单帧、三帧、流式压缩（无 content size）、checksum、截断/垃圾输入和 CLI 错误退出。注入清单覆盖空注入、单文件、多文件链、后续替换/新增/删除、替换 baseline、正文里伪造标题；漂移检测覆盖三态、空清单、目录、相对/绝对/`~` 路径、同字节数不同内容、排序与退出码；目录汇总覆盖递归多会话、空目录、没有会话文件的目录、无 usage 会话和损坏日志。
