@@ -3,6 +3,11 @@ import { readFile } from 'node:fs/promises';
 import process from 'node:process';
 
 import {
+  detectDrift,
+  formatDriftReport,
+  hasDrift,
+} from '../src/drift-detection.js';
+import {
   extractInjectionManifest,
   formatInjectionManifest,
   InstructionManifestError,
@@ -14,6 +19,7 @@ import { decodeZstdFrames, ZstdFrameError } from '../src/zstd-frames.js';
 const USAGE = [
   'Usage: dsh-inspect <path-to-session.v4.jsonl.zstd>',
   '       dsh-inspect inject <path-to-session.v4.jsonl.zstd>',
+  '       dsh-inspect drift <path-to-session.v4.jsonl.zstd>',
   '       dsh-inspect report <directory>',
 ].join('\n');
 
@@ -139,6 +145,46 @@ async function injectCommand(args) {
   return 0;
 }
 
+/**
+ * Exit codes for `drift` are 0 = no drift, 1 = drift, 2 = the session log could
+ * not be inspected (the ticket's table; other subcommands keep their own).
+ */
+async function driftCommand(args) {
+  if (args.length !== 1) return usageError(args, 'drift');
+
+  const path = args[0];
+  let manifest;
+
+  try {
+    manifest = extractInjectionManifest(
+      parseSessionLog(decodeZstdFrames(await readSessionLog(path))),
+    );
+  } catch (error) {
+    failForPath(path, error);
+    return 2;
+  }
+
+  let results;
+
+  try {
+    results = await detectDrift(manifest);
+  } catch (error) {
+    fail(`cannot compare the injection manifest with disk: ${error.message}`);
+    return 2;
+  }
+
+  try {
+    const text = formatDriftReport(results);
+
+    if (text !== '') await writeStdout(`${text}\n`);
+  } catch (error) {
+    fail(`cannot write drift report: ${error.message}`);
+    return 2;
+  }
+
+  return hasDrift(results) ? 1 : 0;
+}
+
 async function reportCommand(args) {
   if (args.length !== 1) return usageError(args, 'report');
 
@@ -173,6 +219,7 @@ async function main(args) {
   const [command, ...rest] = args;
 
   if (command === 'inject') return injectCommand(rest);
+  if (command === 'drift') return driftCommand(rest);
   if (command === 'report') return reportCommand(rest);
 
   return decodeCommand(args);
